@@ -1,4 +1,3 @@
-
 #include <SFML/Graphics.hpp>
 #include <iostream>
 #include <vector>
@@ -10,7 +9,7 @@
 
 using namespace std;
 
-const int CELL_SIZE = 30;
+
 enum Difficulty { EASY = 15, MEDIUM = 20, HARD = 25 };
 enum GameState { MENU, DIFFICULTY_SELECT, PLAYING };
 
@@ -24,9 +23,10 @@ public:
 class Button {
     sf::RectangleShape shape;
     sf::Text text;
+
 public:
     Button(const std::string& str, const sf::Font& font, float x, float y) {
-        shape.setSize(sf::Vector2f(200, 50));
+        shape.setSize(sf::Vector2f(350, 100)); // Default size
         shape.setPosition(x, y);
         shape.setFillColor(sf::Color(100, 100, 100));
 
@@ -36,8 +36,8 @@ public:
         text.setFillColor(sf::Color::White);
 
         text.setPosition(
-            x + (200 - text.getLocalBounds().width) / 2,
-            y + (50 - text.getLocalBounds().height) / 2
+            x + (shape.getSize().x - text.getLocalBounds().width) / 2,
+            y + (shape.getSize().y - text.getLocalBounds().height) / 2
         );
     }
 
@@ -49,15 +49,29 @@ public:
     bool contains(sf::Vector2i point) const {
         return shape.getGlobalBounds().contains(point.x, point.y);
     }
+
+    void setSize(const sf::Vector2f& size) {
+        shape.setSize(size);
+        text.setCharacterSize(static_cast<unsigned int>(size.y / 2)); // Adjust text size proportionally
+
+        // Recalculate the text position to center it within the new button size
+        text.setPosition(
+            shape.getPosition().x + (size.x - text.getLocalBounds().width) / 2,
+            shape.getPosition().y + (size.y - text.getLocalBounds().height) / 2
+        );
+    }
 };
 
 class Game {
+public:
+    int score = 1000; // Starting score
 private:
+    // Existing variables
     sf::RenderWindow window;
     sf::Font font;
     GameState state = MENU;
     int mazeSize = EASY;
-
+    int CELL_SIZE = 30;
     std::vector<std::vector<Cell>> maze;
     sf::Vector2i playerPos{ 0, 0 };
     sf::Clock gameTimer;
@@ -69,6 +83,7 @@ private:
 
     std::vector<Button> menuButtons;
     std::vector<Button> difficultyButtons;
+
 
     void generateMaze() {
         // Initialize maze with all walls
@@ -200,20 +215,39 @@ private:
 
 public:
     Game() :
-        window(sf::VideoMode(800, 600), "Maze Game"),
-        hintButton("Hint", font, 10, 70)
+        window(sf::VideoMode(1000, 800), "Maze Game"),
+        hintButton("Hint", font, 10, 120) // Adjusted position for the hint button
     {
-        if (!font.loadFromFile("C:\\Users\\Hp\\Desktop\\arial\\arial.ttf")) {
+        if (!font.loadFromFile("C:\\Users\\Hp\\Desktop\\arial.ttf")) {
             throw std::runtime_error("Could not load font");
         }
 
         menuButtons.emplace_back("Single Player", font, 300, 200);
-        menuButtons.emplace_back("Multiplayer", font, 300, 300);
+        menuButtons.emplace_back("Multiplayer", font, 300, 350);
 
         difficultyButtons.emplace_back("Easy", font, 300, 150);
-        difficultyButtons.emplace_back("Medium", font, 300, 250);
-        difficultyButtons.emplace_back("Hard", font, 300, 350);
+        difficultyButtons.emplace_back("Medium", font, 300, 300);
+        difficultyButtons.emplace_back("Hard", font, 300, 450);
+
+        hintButton.setSize(sf::Vector2f(100, 40)); // Reduced size
     }
+
+    // Adjust cell size based on difficulty
+    void setDifficulty(int difficulty) {
+        mazeSize = difficulty;
+        if (difficulty == EASY) {
+            CELL_SIZE = 50; // Larger cells for easy difficulty
+        }
+        else if (difficulty == MEDIUM) {
+            CELL_SIZE = 40; // Medium cells for medium difficulty
+        }
+        else if (difficulty == HARD) {
+            CELL_SIZE = 30; // Smaller cells for hard difficulty
+        }
+        generateMaze(); // Regenerate the maze for the new difficulty
+    }
+
+
 
     void run() {
         while (window.isOpen()) {
@@ -221,10 +255,31 @@ public:
             draw();
         }
     }
+    void updateScore(bool isMove = false, bool isHintUsed = false) {
+        static int lastTime = 0; // Keeps track of the last processed time
+        int currentTime = static_cast<int>(gameTimer.getElapsedTime().asSeconds());
+
+        // Deduct 1 point per second
+        score = std::max(0, score - (currentTime - lastTime));
+        lastTime = currentTime;
+
+        // Deduct points for movement
+        if (isMove) {
+            score = std::max(0, score - 5);
+        }
+
+        // Deduct points for using a hint
+        if (isHintUsed) {
+            score = std::max(0, score - 50);
+        }
+    }
+
 
 private:
+    int hintCount = 3;  // Player starts with 3 hints
     void handleEvents() {
         sf::Event event;
+
         while (window.pollEvent(event)) {
             if (event.type == sf::Event::Closed)
                 window.close();
@@ -232,12 +287,20 @@ private:
             if (event.type == sf::Event::MouseButtonPressed) {
                 sf::Vector2i mousePos = sf::Mouse::getPosition(window);
 
-                if (state == PLAYING && hintButton.contains(mousePos)) {
+                // Handle hint button click and check if hints are available
+                if (state == PLAYING && hintButton.contains(mousePos) && hintCount > 0) {
                     showHint = true;
                     hintTimer.restart();
-                    hintPath = findPath();
+                    hintPath = findPath(); // Generate hint path
+                    updateScore(false, true); // Indicate a hint was used
+                    --hintCount; // Decrease the hint count by 1
+                }
+                // Provide feedback if there are no hints left
+                else if (state == PLAYING && hintButton.contains(mousePos) && hintCount == 0) {
+                    std::cout << "No hints left!" << std::endl;
                 }
 
+                // Handle menu and difficulty selection buttons
                 if (state == MENU) {
                     for (const auto& button : menuButtons) {
                         if (button.contains(mousePos)) {
@@ -248,31 +311,48 @@ private:
                 else if (state == DIFFICULTY_SELECT) {
                     for (size_t i = 0; i < difficultyButtons.size(); i++) {
                         if (difficultyButtons[i].contains(mousePos)) {
-                            mazeSize = (i == 0) ? EASY : (i == 1) ? MEDIUM : HARD;
+                            int selectedDifficulty = (i == 0) ? EASY : (i == 1) ? MEDIUM : HARD;
+                            setDifficulty(selectedDifficulty);
                             state = PLAYING;
-                            generateMaze();
                             playerPos = sf::Vector2i(0, 0);
                             gameTimer.restart();
                             hintPath.clear();
                         }
                     }
                 }
+
             }
 
+            // Handle player movement
             if (state == PLAYING && event.type == sf::Event::KeyPressed) {
                 sf::Vector2i newPos = playerPos;
+                bool isMoveValid = false;  // Flag to check if the move is valid
+                bool isValidMove = false;  // To check if player is making a valid move
+
                 switch (event.key.code) {
                 case sf::Keyboard::Up:
-                    if (!maze[playerPos.y][playerPos.x].walls[0]) newPos.y--;
+                    if (!maze[playerPos.y][playerPos.x].walls[0]) {
+                        newPos.y--;
+                        isMoveValid = true;
+                    }
                     break;
                 case sf::Keyboard::Right:
-                    if (!maze[playerPos.y][playerPos.x].walls[1]) newPos.x++;
+                    if (!maze[playerPos.y][playerPos.x].walls[1]) {
+                        newPos.x++;
+                        isMoveValid = true;
+                    }
                     break;
                 case sf::Keyboard::Down:
-                    if (!maze[playerPos.y][playerPos.x].walls[2]) newPos.y++;
+                    if (!maze[playerPos.y][playerPos.x].walls[2]) {
+                        newPos.y++;
+                        isMoveValid = true;
+                    }
                     break;
                 case sf::Keyboard::Left:
-                    if (!maze[playerPos.y][playerPos.x].walls[3]) newPos.x--;
+                    if (!maze[playerPos.y][playerPos.x].walls[3]) {
+                        newPos.x--;
+                        isMoveValid = true;
+                    }
                     break;
                 case sf::Keyboard::Escape:
                     state = MENU;
@@ -280,17 +360,42 @@ private:
                 default:
                     break;
                 }
-                playerPos = newPos;
+
+                // Only handle valid moves
+                if (isMoveValid) {
+                    // Check if the new position is the same as a visited one
+                    if (maze[newPos.y][newPos.x].visited) {
+                        // Allow the move without point deduction
+                        isValidMove = true;
+                        updateScore(true, false);
+                    }
+                    else {
+                        // New unvisited cell, mark it as visited
+                        maze[newPos.y][newPos.x].visited = true;
+                        isValidMove = true;
+                        updateScore(false, false); // No penalty for valid new moves
+                    }
+
+                    // If it's a valid move (whether revisiting or a new visit), update the player position
+                    if (isValidMove) {
+                        playerPos = newPos;
+                    }
+                    else {
+                        // If the move is invalid (due to wall), do nothing
+                    }
+                }
 
                 // Check win condition
                 if (playerPos.x == mazeSize - 1 && playerPos.y == mazeSize - 1) {
+                    score += 100; // Bonus for reaching the goal
+                    std::cout << score;
                     state = MENU;
                 }
             }
         }
 
         // Update hint timer
-        if (showHint && hintTimer.getElapsedTime().asSeconds() > 3.0f) {
+        if (showHint && hintTimer.getElapsedTime().asSeconds() > 2.0f) {
             showHint = false;
             hintPath.clear();
         }
@@ -313,10 +418,10 @@ private:
             break;
 
         case PLAYING:
-            // Calculate offset to center maze
-            float offsetX = (800 - mazeSize * CELL_SIZE) / 2;
-            float offsetY = (600 - mazeSize * CELL_SIZE) / 2;
 
+            float mazeAreaWidth = 1000;  // Width allocated for maze
+            float offsetX = (mazeAreaWidth - mazeSize * CELL_SIZE) / 2;
+            float offsetY = (800 - mazeSize * CELL_SIZE) / 2;
             // Draw maze
             for (int y = 0; y < mazeSize; y++) {
                 for (int x = 0; x < mazeSize; x++) {
@@ -351,19 +456,6 @@ private:
                 }
             }
 
-            // Draw hint path
-            if (showHint && !hintPath.empty()) {
-                for (const auto& pos : hintPath) {
-                    sf::RectangleShape pathCell(sf::Vector2f(CELL_SIZE - 4, CELL_SIZE - 4));
-                    pathCell.setPosition(
-                        pos.x * CELL_SIZE + offsetX + 2,
-                        pos.y * CELL_SIZE + offsetY + 2
-                    );
-                    pathCell.setFillColor(sf::Color(255, 255, 0, 128));
-                    window.draw(pathCell);
-                }
-            }
-
             // Draw goal
             sf::RectangleShape goal(sf::Vector2f(CELL_SIZE - 4, CELL_SIZE - 4));
             goal.setPosition(
@@ -382,21 +474,42 @@ private:
             player.setFillColor(sf::Color::Red);
             window.draw(player);
 
-            // Draw timer
-            std::stringstream ss;
-            ss << "Time: " << static_cast<int>(gameTimer.getElapsedTime().asSeconds()) << "s";
-            sf::Text timerText(ss.str(), font, 20);
+            // Draw UI on the right side
+            sf::Text timerText("Time: " + std::to_string(static_cast<int>(gameTimer.getElapsedTime().asSeconds())) + "s", font, 20);
             timerText.setPosition(10, 10);
             timerText.setFillColor(sf::Color::White);
             window.draw(timerText);
 
-            // Draw hint button
+            sf::Text scoreText("Score: " + std::to_string(score), font, 20);
+            scoreText.setPosition(10, 50);
+            scoreText.setFillColor(sf::Color::White);
+            window.draw(scoreText);
+
+            sf::Text hintCountText("Hints: " + std::to_string(hintCount), font, 20);
+            hintCountText.setPosition(10, 90);
+            hintCountText.setFillColor(sf::Color::White);
+            window.draw(hintCountText);
+
             hintButton.draw(window);
+
+            // Draw hint path
+            if (showHint && !hintPath.empty()) {
+                for (const auto& pos : hintPath) {
+                    sf::RectangleShape pathCell(sf::Vector2f(CELL_SIZE - 4, CELL_SIZE - 4));
+                    pathCell.setPosition(
+                        pos.x * CELL_SIZE + offsetX + 2,
+                        pos.y * CELL_SIZE + offsetY + 2
+                    );
+                    pathCell.setFillColor(sf::Color(255, 255, 0, 128));
+                    window.draw(pathCell);
+                }
+            }
             break;
         }
 
         window.display();
     }
+
 };
 
 int main() {
