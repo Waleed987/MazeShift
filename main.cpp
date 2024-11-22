@@ -88,6 +88,8 @@ private:
     std::vector<Button> menuButtons;
     std::vector<Button> difficultyButtons;
     bool isGameWon = false;
+    bool isGameLost = false;
+
     sf::Time completionTime;
 
 
@@ -102,6 +104,7 @@ private:
 
         // Reset lastTime to match the new timer
         lastTime = 0;
+        isGameLost = false; // Reset the lose condition
 
         // Regenerate the maze
         generateMaze();
@@ -279,7 +282,9 @@ public:
     }
     void updateScore(bool isMove = false, bool isHintUsed = false) {
         int currentTime = static_cast<int>(gameTimer.getElapsedTime().asSeconds());
-
+        if (currentTime > 180) { // set score to zero if 3 minutes have passed
+            score = 0; // For setting gameLose true
+        }
         // Deduct time-based points only if the game is running
         if (currentTime > lastTime) {
             score = std::max(0, score - (currentTime - lastTime));
@@ -419,8 +424,20 @@ private:
                         }
                         return;
                     }
+                    if (state == PLAYING) {
+                        // Check if the game is lost
+                        if (score <= 0) {
+                            isGameLost = true;
 
-                    // Existing movement and other logic...
+                            // Display a game-over message and handle resetting
+                            if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Enter) {
+                                resetGame();
+                                state = MENU;
+                            }
+                            return; // Exit early to avoid further updates
+                        }
+                    }
+
                     if (playerPos.x == mazeSize - 1 && playerPos.y == mazeSize - 1) {
                         isGameWon = true;
                         completionTime = gameTimer.getElapsedTime(); // Store the time when the player wins
@@ -563,7 +580,24 @@ private:
                 window.draw(timeText);
                 window.draw(instructionText);
             }
+            if (isGameLost) {
+                sf::Text loseText("You Lost! Better luck next time!", font, 30);
+                loseText.setFillColor(sf::Color::White);
+                loseText.setPosition(250, 300);
 
+                sf::Text scoreText("Final Score: " + std::to_string(score), font, 24);
+                scoreText.setFillColor(sf::Color::White);
+                scoreText.setPosition(300, 350);
+
+
+                sf::Text instructionText("Press Enter to return to the menu", font, 20);
+                instructionText.setFillColor(sf::Color::White);
+                instructionText.setPosition(250, 450);
+
+                window.draw(loseText);
+                window.draw(scoreText);
+                window.draw(instructionText);
+            }
             break;
         }
 
