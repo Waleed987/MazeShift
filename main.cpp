@@ -20,6 +20,7 @@ public:
     bool isPath = false; // For marking cells in the hint path
 };
 
+// ... [Previous Button class code remains the same] ...
 class Button {
     sf::RectangleShape shape;
     sf::Text text;
@@ -65,6 +66,9 @@ public:
 class Game {
 public:
     int score = 1000; // Starting score
+    // Declare lastTime as a member variable or global
+    int lastTime = 0; // Ensure it's initialized to 0
+
 private:
     // Existing variables
     sf::RenderWindow window;
@@ -83,7 +87,25 @@ private:
 
     std::vector<Button> menuButtons;
     std::vector<Button> difficultyButtons;
+    bool isGameWon = false;
+    sf::Time completionTime;
 
+
+    void resetGame() {
+        // Reset game variables
+        score = 1000;
+        hintCount = 3;
+        playerPos = sf::Vector2i(0, 0);
+        gameTimer.restart();  // Reset the timer
+        hintPath.clear();
+        state = MENU;
+
+        // Reset lastTime to match the new timer
+        lastTime = 0;
+
+        // Regenerate the maze
+        generateMaze();
+    }
 
     void generateMaze() {
         // Initialize maze with all walls
@@ -218,7 +240,7 @@ public:
         window(sf::VideoMode(1000, 800), "Maze Game"),
         hintButton("Hint", font, 10, 120) // Adjusted position for the hint button
     {
-        if (!font.loadFromFile("C:\\Users\\Hp\\Desktop\\arial.ttf")) {
+        if (!font.loadFromFile("arial.ttf")) {
             throw std::runtime_error("Could not load font");
         }
 
@@ -256,12 +278,13 @@ public:
         }
     }
     void updateScore(bool isMove = false, bool isHintUsed = false) {
-        static int lastTime = 0; // Keeps track of the last processed time
         int currentTime = static_cast<int>(gameTimer.getElapsedTime().asSeconds());
 
-        // Deduct 1 point per second
-        score = std::max(0, score - (currentTime - lastTime));
-        lastTime = currentTime;
+        // Deduct time-based points only if the game is running
+        if (currentTime > lastTime) {
+            score = std::max(0, score - (currentTime - lastTime));
+            lastTime = currentTime; // Update lastTime
+        }
 
         // Deduct points for movement
         if (isMove) {
@@ -273,6 +296,7 @@ public:
             score = std::max(0, score - 50);
         }
     }
+
 
 
 private:
@@ -384,13 +408,25 @@ private:
                         // If the move is invalid (due to wall), do nothing
                     }
                 }
+                if (state == PLAYING) {
+                    // Check if the game is won
+                    if (isGameWon) {
+                        // Handle Enter key to return to menu after winning
+                        if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Enter) {
+                            resetGame();
+                            state = MENU;
+                            isGameWon = false;
+                        }
+                        return;
+                    }
 
-                // Check win condition
-                if (playerPos.x == mazeSize - 1 && playerPos.y == mazeSize - 1) {
-                    score += 100; // Bonus for reaching the goal
-                    std::cout << score;
-                    state = MENU;
+                    // Existing movement and other logic...
+                    if (playerPos.x == mazeSize - 1 && playerPos.y == mazeSize - 1) {
+                        isGameWon = true;
+                        completionTime = gameTimer.getElapsedTime(); // Store the time when the player wins
+                    }
                 }
+
             }
         }
 
@@ -504,6 +540,30 @@ private:
                     window.draw(pathCell);
                 }
             }
+            if (isGameWon) {
+                sf::Text winText("Congratulations! You Won!", font, 30);
+                winText.setFillColor(sf::Color::White);
+                winText.setPosition(250, 300);
+
+                sf::Text scoreText("Final Score: " + std::to_string(score), font, 24);
+                scoreText.setFillColor(sf::Color::White);
+                scoreText.setPosition(300, 350);
+
+                sf::Text timeText("Time: " + std::to_string(static_cast<int>(completionTime.asSeconds())) + "s", font, 24);
+                timeText.setFillColor(sf::Color::White);
+                timeText.setPosition(300, 400);
+
+                sf::Text instructionText("Press Enter to return to the menu", font, 20);
+                instructionText.setFillColor(sf::Color::White);
+                instructionText.setPosition(250, 450);
+                
+
+                window.draw(winText);
+                window.draw(scoreText);
+                window.draw(timeText);
+                window.draw(instructionText);
+            }
+
             break;
         }
 
