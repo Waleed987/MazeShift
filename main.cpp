@@ -88,8 +88,6 @@ private:
     std::vector<Button> menuButtons;
     std::vector<Button> difficultyButtons;
     bool isGameWon = false;
-    bool isGameLost = false;
-
     sf::Time completionTime;
 
 
@@ -104,7 +102,6 @@ private:
 
         // Reset lastTime to match the new timer
         lastTime = 0;
-        isGameLost = false; // Reset the lose condition
 
         // Regenerate the maze
         generateMaze();
@@ -243,7 +240,7 @@ public:
         window(sf::VideoMode(1000, 800), "Maze Game"),
         hintButton("Hint", font, 10, 120) // Adjusted position for the hint button
     {
-        if (!font.loadFromFile("arial.ttf")) {
+        if (!font.loadFromFile("C:\\Users\\Waleed\\Desktop\\arial.ttf")) {
             throw std::runtime_error("Could not load font");
         }
 
@@ -282,9 +279,7 @@ public:
     }
     void updateScore(bool isMove = false, bool isHintUsed = false) {
         int currentTime = static_cast<int>(gameTimer.getElapsedTime().asSeconds());
-        if (currentTime > 180) { // set score to zero if 3 minutes have passed
-            score = 0; // For setting gameLose true
-        }
+
         // Deduct time-based points only if the game is running
         if (currentTime > lastTime) {
             score = std::max(0, score - (currentTime - lastTime));
@@ -424,20 +419,8 @@ private:
                         }
                         return;
                     }
-                    if (state == PLAYING) {
-                        // Check if the game is lost
-                        if (score <= 0) {
-                            isGameLost = true;
 
-                            // Display a game-over message and handle resetting
-                            if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Enter) {
-                                resetGame();
-                                state = MENU;
-                            }
-                            return; // Exit early to avoid further updates
-                        }
-                    }
-
+                    // Existing movement and other logic...
                     if (playerPos.x == mazeSize - 1 && playerPos.y == mazeSize - 1) {
                         isGameWon = true;
                         completionTime = gameTimer.getElapsedTime(); // Store the time when the player wins
@@ -471,132 +454,137 @@ private:
             break;
 
         case PLAYING:
-
-            float mazeAreaWidth = 1000;  // Width allocated for maze
-            float offsetX = (mazeAreaWidth - mazeSize * CELL_SIZE) / 2;
-            float offsetY = (800 - mazeSize * CELL_SIZE) / 2;
-            // Draw maze
-            for (int y = 0; y < mazeSize; y++) {
-                for (int x = 0; x < mazeSize; x++) {
-                    float px = x * CELL_SIZE + offsetX;
-                    float py = y * CELL_SIZE + offsetY;
-
-                    // Draw walls
-                    if (maze[y][x].walls[0]) { // Top
-                        sf::RectangleShape wall(sf::Vector2f(CELL_SIZE, 2));
-                        wall.setPosition(px, py);
-                        wall.setFillColor(sf::Color::White);
-                        window.draw(wall);
-                    }
-                    if (maze[y][x].walls[1]) { // Right
-                        sf::RectangleShape wall(sf::Vector2f(2, CELL_SIZE));
-                        wall.setPosition(px + CELL_SIZE - 2, py);
-                        wall.setFillColor(sf::Color::White);
-                        window.draw(wall);
-                    }
-                    if (maze[y][x].walls[2]) { // Bottom
-                        sf::RectangleShape wall(sf::Vector2f(CELL_SIZE, 2));
-                        wall.setPosition(px, py + CELL_SIZE - 2);
-                        wall.setFillColor(sf::Color::White);
-                        window.draw(wall);
-                    }
-                    if (maze[y][x].walls[3]) { // Left
-                        sf::RectangleShape wall(sf::Vector2f(2, CELL_SIZE));
-                        wall.setPosition(px, py);
-                        wall.setFillColor(sf::Color::White);
-                        window.draw(wall);
-                    }
-                }
-            }
-
-            // Draw goal
-            sf::RectangleShape goal(sf::Vector2f(CELL_SIZE - 4, CELL_SIZE - 4));
-            goal.setPosition(
-                (mazeSize - 1) * CELL_SIZE + offsetX + 2,
-                (mazeSize - 1) * CELL_SIZE + offsetY + 2
-            );
-            goal.setFillColor(sf::Color::Green);
-            window.draw(goal);
-
-            // Draw player
-            sf::RectangleShape player(sf::Vector2f(CELL_SIZE - 8, CELL_SIZE - 8));
-            player.setPosition(
-                playerPos.x * CELL_SIZE + offsetX + 4,
-                playerPos.y * CELL_SIZE + offsetY + 4
-            );
-            player.setFillColor(sf::Color::Red);
-            window.draw(player);
-
-            // Draw UI on the right side
-            sf::Text timerText("Time: " + std::to_string(static_cast<int>(gameTimer.getElapsedTime().asSeconds())) + "s", font, 20);
-            timerText.setPosition(10, 10);
-            timerText.setFillColor(sf::Color::White);
-            window.draw(timerText);
-
-            sf::Text scoreText("Score: " + std::to_string(score), font, 20);
-            scoreText.setPosition(10, 50);
-            scoreText.setFillColor(sf::Color::White);
-            window.draw(scoreText);
-
-            sf::Text hintCountText("Hints: " + std::to_string(hintCount), font, 20);
-            hintCountText.setPosition(10, 90);
-            hintCountText.setFillColor(sf::Color::White);
-            window.draw(hintCountText);
-
-            hintButton.draw(window);
-
-            // Draw hint path
-            if (showHint && !hintPath.empty()) {
-                for (const auto& pos : hintPath) {
-                    sf::RectangleShape pathCell(sf::Vector2f(CELL_SIZE - 4, CELL_SIZE - 4));
-                    pathCell.setPosition(
-                        pos.x * CELL_SIZE + offsetX + 2,
-                        pos.y * CELL_SIZE + offsetY + 2
-                    );
-                    pathCell.setFillColor(sf::Color(255, 255, 0, 128));
-                    window.draw(pathCell);
-                }
-            }
             if (isGameWon) {
-                sf::Text winText("Congratulations! You Won!", font, 30);
-                winText.setFillColor(sf::Color::White);
-                winText.setPosition(250, 300);
+                // Center position calculations
+                float centerX = window.getSize().x / 2.0f;
+                float centerY = window.getSize().y / 2.0f;
 
-                sf::Text scoreText("Final Score: " + std::to_string(score), font, 24);
+                // Main congratulations text
+                sf::Text winText("Congratulations! You Won!", font, 40);
+                winText.setFillColor(sf::Color::Yellow);
+                winText.setPosition(
+                    centerX - winText.getLocalBounds().width / 2,
+                    centerY - 100
+                );
+
+                // Score text
+                sf::Text scoreText("Final Score: " + std::to_string(score), font, 30);
                 scoreText.setFillColor(sf::Color::White);
-                scoreText.setPosition(300, 350);
+                scoreText.setPosition(
+                    centerX - scoreText.getLocalBounds().width / 2,
+                    centerY
+                );
 
-                sf::Text timeText("Time: " + std::to_string(static_cast<int>(completionTime.asSeconds())) + "s", font, 24);
+                // Time text
+                sf::Text timeText("Time: " + std::to_string(static_cast<int>(completionTime.asSeconds())) + "s", font, 30);
                 timeText.setFillColor(sf::Color::White);
-                timeText.setPosition(300, 400);
+                timeText.setPosition(
+                    centerX - timeText.getLocalBounds().width / 2,
+                    centerY + 50
+                );
 
-                sf::Text instructionText("Press Enter to return to the menu", font, 20);
-                instructionText.setFillColor(sf::Color::White);
-                instructionText.setPosition(250, 450);
-                
+                // Instruction text
+                sf::Text instructionText("Press Enter to return to menu", font, 25);
+                instructionText.setFillColor(sf::Color(150, 150, 150));
+                instructionText.setPosition(
+                    centerX - instructionText.getLocalBounds().width / 2,
+                    centerY + 120
+                );
 
+                // Draw all win screen elements
                 window.draw(winText);
                 window.draw(scoreText);
                 window.draw(timeText);
                 window.draw(instructionText);
             }
-            if (isGameLost) {
-                sf::Text loseText("You Lost! Better luck next time!", font, 30);
-                loseText.setFillColor(sf::Color::White);
-                loseText.setPosition(250, 300);
+            else {
+                // Regular game rendering
+                float mazeAreaWidth = 1000;
+                float offsetX = (mazeAreaWidth - mazeSize * CELL_SIZE) / 2;
+                float offsetY = (800 - mazeSize * CELL_SIZE) / 2;
 
-                sf::Text scoreText("Final Score: " + std::to_string(score), font, 24);
+                // Draw maze
+                for (int y = 0; y < mazeSize; y++) {
+                    for (int x = 0; x < mazeSize; x++) {
+                        float px = x * CELL_SIZE + offsetX;
+                        float py = y * CELL_SIZE + offsetY;
+
+                        // Draw walls
+                        if (maze[y][x].walls[0]) { // Top
+                            sf::RectangleShape wall(sf::Vector2f(CELL_SIZE, 2));
+                            wall.setPosition(px, py);
+                            wall.setFillColor(sf::Color::White);
+                            window.draw(wall);
+                        }
+                        if (maze[y][x].walls[1]) { // Right
+                            sf::RectangleShape wall(sf::Vector2f(2, CELL_SIZE));
+                            wall.setPosition(px + CELL_SIZE - 2, py);
+                            wall.setFillColor(sf::Color::White);
+                            window.draw(wall);
+                        }
+                        if (maze[y][x].walls[2]) { // Bottom
+                            sf::RectangleShape wall(sf::Vector2f(CELL_SIZE, 2));
+                            wall.setPosition(px, py + CELL_SIZE - 2);
+                            wall.setFillColor(sf::Color::White);
+                            window.draw(wall);
+                        }
+                        if (maze[y][x].walls[3]) { // Left
+                            sf::RectangleShape wall(sf::Vector2f(2, CELL_SIZE));
+                            wall.setPosition(px, py);
+                            wall.setFillColor(sf::Color::White);
+                            window.draw(wall);
+                        }
+                    }
+                }
+
+                // Draw goal
+                sf::RectangleShape goal(sf::Vector2f(CELL_SIZE - 4, CELL_SIZE - 4));
+                goal.setPosition(
+                    (mazeSize - 1) * CELL_SIZE + offsetX + 2,
+                    (mazeSize - 1) * CELL_SIZE + offsetY + 2
+                );
+                goal.setFillColor(sf::Color::Green);
+                window.draw(goal);
+
+                // Draw player
+                sf::RectangleShape player(sf::Vector2f(CELL_SIZE - 8, CELL_SIZE - 8));
+                player.setPosition(
+                    playerPos.x * CELL_SIZE + offsetX + 4,
+                    playerPos.y * CELL_SIZE + offsetY + 4
+                );
+                player.setFillColor(sf::Color::Red);
+                window.draw(player);
+
+                // Draw UI elements
+                sf::Text timerText("Time: " + std::to_string(static_cast<int>(gameTimer.getElapsedTime().asSeconds())) + "s", font, 20);
+                timerText.setPosition(10, 10);
+                timerText.setFillColor(sf::Color::White);
+                window.draw(timerText);
+
+                sf::Text scoreText("Score: " + std::to_string(score), font, 20);
+                scoreText.setPosition(10, 50);
                 scoreText.setFillColor(sf::Color::White);
-                scoreText.setPosition(300, 350);
-
-
-                sf::Text instructionText("Press Enter to return to the menu", font, 20);
-                instructionText.setFillColor(sf::Color::White);
-                instructionText.setPosition(250, 450);
-
-                window.draw(loseText);
                 window.draw(scoreText);
-                window.draw(instructionText);
+
+                sf::Text hintCountText("Hints: " + std::to_string(hintCount), font, 20);
+                hintCountText.setPosition(10, 90);
+                hintCountText.setFillColor(sf::Color::White);
+                window.draw(hintCountText);
+
+                hintButton.draw(window);
+
+                // Draw hint path
+                if (showHint && !hintPath.empty()) {
+                    for (const auto& pos : hintPath) {
+                        sf::RectangleShape pathCell(sf::Vector2f(CELL_SIZE - 4, CELL_SIZE - 4));
+                        pathCell.setPosition(
+                            pos.x * CELL_SIZE + offsetX + 2,
+                            pos.y * CELL_SIZE + offsetY + 2
+                        );
+                        pathCell.setFillColor(sf::Color(255, 255, 0, 128));
+                        window.draw(pathCell);
+                    }
+                }
             }
             break;
         }
