@@ -6,12 +6,14 @@
 #include <random>
 #include <ctime>
 #include <sstream>
-
+#include <fstream>
+#include <chrono>
+#include <iomanip>
 using namespace std;
 
-
 enum Difficulty { EASY = 15, MEDIUM = 20, HARD = 25 };
-enum GameState { MENU, DIFFICULTY_SELECT, PLAYING };
+enum GameState { MENU, DIFFICULTY_SELECT, PLAYING, MULTIPLAYER_PLAYING, SCORES };
+
 
 class Cell {
 public:
@@ -20,7 +22,7 @@ public:
     bool isPath = false; // For marking cells in the hint path
 };
 
-// ... [Previous Button class code remains the same] ...
+
 class Button {
     sf::RectangleShape shape;
     sf::Text text;
@@ -89,26 +91,43 @@ private:
     std::vector<Button> difficultyButtons;
     bool isGameWon = false;
     bool isGameLost = false;
+    Button hintButton1{ "Hint Player 1", font, 50, 50 };  // Player 1 hint button
+    Button hintButton2{ "Hint Player 2", font, 650, 50 };// Player 2 hint button
+    std::vector<sf::Vector2i> hintPath1;                // Hint path for Player 1
+    std::vector<sf::Vector2i> hintPath2;                // Hint path for Player 2
 
     sf::Time completionTime;
+    std::vector<std::vector<Cell>> maze2;  // Second maze
+    sf::Vector2i player1Pos{ 0, 0 };         // Player 1 position
+    sf::Vector2i player2Pos{ 0, 0 };         // Player 2 position
+    int winningPlayer = 0;                 // Tracks the winning player (1 or 2)
+    bool isMultiplayerMazeGenerated = false;
+
+    
+    bool showHint1 = false;                             // Whether Player 1's hint is active
+    bool showHint2 = false;                             // Whether Player 2's hint is active
+    sf::Clock hintTimer1;                               // Timer for Player 1 hint
+    sf::Clock hintTimer2;                               // Timer for Player 2 hint
+    int hintCount1 = 3;                                 // Number of hints for Player 1
+    int hintCount2 = 3;                                 // Number of hints for Player 2
+    // Ensure mazes are generated once
+
 
 
     void resetGame() {
-        // Reset game variables
         score = 300;
         hintCount = 3;
         playerPos = sf::Vector2i(0, 0);
-        gameTimer.restart();  // Reset the timer
+        gameTimer.restart(); // Restart the game timer
         hintPath.clear();
         state = MENU;
 
-        // Reset lastTime to match the new timer
         lastTime = 0;
-        isGameLost = false; // Reset the lose condition
+        isGameLost = false;
 
-        // Regenerate the maze
-        generateMaze();
+        generateMaze(); // Regenerate the maze
     }
+
 
     void generateMaze() {
         // Initialize maze with all walls
@@ -237,24 +256,175 @@ private:
         }
         return path;
     }
+    std::vector<sf::Vector2i> findPathForPlayer(const std::vector<std::vector<Cell>>& maze, sf::Vector2i start) {
+        std::vector<std::vector<sf::Vector2i>> parent(mazeSize, std::vector<sf::Vector2i>(mazeSize, sf::Vector2i(-1, -1)));
+        std::vector<std::vector<bool>> visited(mazeSize, std::vector<bool>(mazeSize, false));
+        std::queue<sf::Vector2i> q;
+
+        q.push(start);
+        visited[start.y][start.x] = true;
+
+        sf::Vector2i goal(mazeSize - 1, mazeSize - 1); // Target is the bottom-right corner
+        bool foundPath = false;
+
+        while (!q.empty() && !foundPath) {
+            sf::Vector2i current = q.front();
+            q.pop();
+
+            if (current == goal) {
+                foundPath = true;
+                break;
+            }
+
+            // Check all four directions
+            for (int dir = 0; dir < 4; ++dir) {
+                if (!maze[current.y][current.x].walls[dir]) {
+                    sf::Vector2i next = current;
+                    switch (dir) {
+                    case 0: next.y--; break; // Top
+                    case 1: next.x++; break; // Right
+                    case 2: next.y++; break; // Bottom
+                    case 3: next.x--; break; // Left
+                    }
+
+                    if (next.x >= 0 && next.x < mazeSize &&
+                        next.y >= 0 && next.y < mazeSize &&
+                        !visited[next.y][next.x]) {
+                        q.push(next);
+                        visited[next.y][next.x] = true;
+                        parent[next.y][next.x] = current;
+                    }
+                }
+            }
+        }
+
+        // Build the path from the goal back to the start
+        std::vector<sf::Vector2i> path;
+        if (foundPath) {
+            sf::Vector2i current = goal;
+            while (current != start) {
+                path.push_back(current);
+                current = parent[current.y][current.x];
+            }
+            std::reverse(path.begin(), path.end());
+        }
+        return path;
+    }
+
+    void saveScoreToFile(const std::string& difficulty, int completionTime) {
+        std::ofstream outFile("scores.csv", std::ios::app);
+
+        if (outFile.is_open()) {
+            // Get the current time and format it as hh:mm and date
+            auto now = std::chrono::system_clock::now();
+            std::time_t nowTime = std::chrono::system_clock::to_time_t(now);
+            std::tm localTime;
+
+            // Use localtime_s for safer conversion
+            if (localtime_s(&localTime, &nowTime) != 0) {
+                std::cerr << "Error: Unable to get local time." << std::endl;
+                return;
+            }
+
+            char timeBuffer[10];
+            char dateBuffer[20];
+            std::strftime(timeBuffer, sizeof(timeBuffer), "%H:%M", &localTime);
+            std::strftime(dateBuffer, sizeof(dateBuffer), "%Y-%m-%d", &localTime);
+
+            // Write the data to the file
+            outFile << difficulty << ","
+                << score << ","
+                << completionTime << "s,"
+                << dateBuffer << " " << timeBuffer << "\n";
+
+            outFile.close();
+        }
+        else {
+            std::cerr << "Error: Unable to open file for saving scores.\n";
+        }
+    }
+    void drawWall(float x, float y, float width, float height) {
+        sf::RectangleShape wall(sf::Vector2f(width, height));
+        wall.setPosition(x, y);
+        wall.setFillColor(sf::Color::White); // Set wall color to white
+        window.draw(wall);
+    }
+    void drawMultiplayerMaze(const std::vector<std::vector<Cell>>& maze, float offsetX, float offsetY, sf::Color playerColor, sf::Vector2i playerPos) {
+        for (int y = 0; y < mazeSize; ++y) {
+            for (int x = 0; x < mazeSize; ++x) {
+                float px = x * CELL_SIZE + offsetX;
+                float py = y * CELL_SIZE + offsetY;
+
+                // Draw walls
+                if (maze[y][x].walls[0]) drawWall(px, py, CELL_SIZE, 2);              // Top
+                if (maze[y][x].walls[1]) drawWall(px + CELL_SIZE - 2, py, 2, CELL_SIZE); // Right
+                if (maze[y][x].walls[2]) drawWall(px, py + CELL_SIZE - 2, CELL_SIZE, 2); // Bottom
+                if (maze[y][x].walls[3]) drawWall(px, py, 2, CELL_SIZE);               // Left
+            }
+        }
+        if (showHint1 && &maze == &this->maze) { // Show Player 1's hint
+            for (const auto& pos : hintPath1) {
+                sf::RectangleShape hintCell(sf::Vector2f(CELL_SIZE - 4, CELL_SIZE - 4));
+                hintCell.setPosition(pos.x * CELL_SIZE + offsetX + 2, pos.y * CELL_SIZE + offsetY + 2);
+                hintCell.setFillColor(sf::Color(255, 255, 0, 128)); // Yellow, semi-transparent
+                window.draw(hintCell);
+            }
+        }
+
+        if (showHint2 && &maze == &this->maze2) { // Show Player 2's hint
+            for (const auto& pos : hintPath2) {
+                sf::RectangleShape hintCell(sf::Vector2f(CELL_SIZE - 4, CELL_SIZE - 4));
+                hintCell.setPosition(pos.x * CELL_SIZE + offsetX + 2, pos.y * CELL_SIZE + offsetY + 2);
+                hintCell.setFillColor(sf::Color(255, 255, 0, 128)); // Yellow, semi-transparent
+                window.draw(hintCell);
+            }
+        }
+        
+        // Draw goal node (bottom-right corner) in green
+        sf::RectangleShape goal(sf::Vector2f(CELL_SIZE - 4, CELL_SIZE - 4));
+        goal.setPosition((mazeSize - 1) * CELL_SIZE + offsetX + 2, (mazeSize - 1) * CELL_SIZE + offsetY + 2);
+        goal.setFillColor(sf::Color::Green);
+        window.draw(goal);
+
+        // Draw player
+        sf::RectangleShape player(sf::Vector2f(CELL_SIZE - 4, CELL_SIZE - 4));
+        player.setPosition(playerPos.x * CELL_SIZE + offsetX + 2, playerPos.y * CELL_SIZE + offsetY + 2);
+        player.setFillColor(playerColor);
+        window.draw(player);
+
+    }
+
+    
+    void generateMultiplayerMaze() {
+        maze.clear();
+        maze.resize(mazeSize, std::vector<Cell>(mazeSize));
+        generateMaze(); // Generate the first maze
+        maze2 = maze;   // Copy the maze for player 2
+        isMultiplayerMazeGenerated = true;
+    }
+
+
 
 public:
     Game() :
         window(sf::VideoMode(1000, 800), "Maze Game"),
         hintButton("Hint", font, 10, 120) // Adjusted position for the hint button
     {
-        if (!font.loadFromFile("C:\\Users\\Waleed\\Desktop\\arial.ttf")) {
+        if (!font.loadFromFile("arial.ttf")) {
             throw std::runtime_error("Could not load font");
         }
 
         menuButtons.emplace_back("Single Player", font, 300, 200);
         menuButtons.emplace_back("Multiplayer", font, 300, 350);
+        menuButtons.emplace_back("Scores", font, 300, 500); // Position the Scores button below others
 
         difficultyButtons.emplace_back("Easy", font, 300, 150);
         difficultyButtons.emplace_back("Medium", font, 300, 300);
         difficultyButtons.emplace_back("Hard", font, 300, 450);
 
         hintButton.setSize(sf::Vector2f(100, 40)); // Reduced size
+        hintButton1.setSize(sf::Vector2f(150, 40));
+        hintButton2.setSize(sf::Vector2f(150, 40));
     }
 
     // Adjust cell size based on difficulty
@@ -272,7 +442,13 @@ public:
         generateMaze(); // Regenerate the maze for the new difficulty
     }
 
-
+    void resetGameForMultiplayer() {
+        player1Pos = { 0, 0 };
+        player2Pos = { 0, 0 };
+        isGameWon = false;
+        winningPlayer = 0;
+        generateMultiplayerMaze();
+    }
 
     void run() {
         while (window.isOpen()) {
@@ -282,7 +458,7 @@ public:
     }
     void updateScore(bool isMove = false, bool isHintUsed = false) {
         int currentTime = static_cast<int>(gameTimer.getElapsedTime().asSeconds());
-        if (currentTime >= 10) {
+        if (currentTime >= 180) {
             score = 0;
         }
         // Deduct time-based points only if the game is running
@@ -324,33 +500,112 @@ private:
                     updateScore(false, true); // Indicate a hint was used
                     --hintCount; // Decrease the hint count by 1
                 }
-                // Provide feedback if there are no hints left
-                else if (state == PLAYING && hintButton.contains(mousePos) && hintCount == 0) {
-                    std::cout << "No hints left!" << std::endl;
-                }
-
-                // Handle menu and difficulty selection buttons
+                
                 if (state == MENU) {
-                    for (const auto& button : menuButtons) {
-                        if (button.contains(mousePos)) {
-                            state = DIFFICULTY_SELECT;
+                    for (size_t i = 0; i < menuButtons.size(); ++i) {
+                        if (menuButtons[i].contains(sf::Mouse::getPosition(window))) {
+                            if (sf::Mouse::isButtonPressed(sf::Mouse::Left)) {
+                                if (i == 0) { // Single Player button
+                                    state = DIFFICULTY_SELECT;
+                                }
+                                else if (i == 1) { // Multiplayer button
+                                    resetGameForMultiplayer();
+                                    state = MULTIPLAYER_PLAYING;
+                                }
+                                else if (i == 2) { // Scores button
+                                    state = SCORES;
+
+                                }
+                            }
                         }
                     }
                 }
                 else if (state == DIFFICULTY_SELECT) {
+
                     for (size_t i = 0; i < difficultyButtons.size(); i++) {
-                        if (difficultyButtons[i].contains(mousePos)) {
-                            int selectedDifficulty = (i == 0) ? EASY : (i == 1) ? MEDIUM : HARD;
-                            setDifficulty(selectedDifficulty);
-                            state = PLAYING;
-                            playerPos = sf::Vector2i(0, 0);
-                            gameTimer.restart();
-                            hintPath.clear();
+                        if (difficultyButtons[i].contains(sf::Mouse::getPosition(window))) {
+                            if (sf::Mouse::isButtonPressed(sf::Mouse::Left)) {
+                                int selectedDifficulty = (i == 0) ? EASY : (i == 1) ? MEDIUM : HARD;
+                                setDifficulty(selectedDifficulty);
+                                state = PLAYING;
+                                playerPos = sf::Vector2i(0, 0);
+                                gameTimer.restart();
+                                hintPath.clear();
+                            }
                         }
+                    }
+                }
+                else if (state == SCORES) {
+                    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Escape)) {
+                        state = MENU; // Return to the main menu
                     }
                 }
 
             }
+            if (state == MULTIPLAYER_PLAYING) {
+                if (event.type == sf::Event::KeyPressed) {
+                    // Player 1 (Arrow keys)
+                    sf::Vector2i newPos1 = player1Pos;
+                    switch (event.key.code) {
+                    case sf::Keyboard::Up:    if (!maze[player1Pos.y][player1Pos.x].walls[0]) newPos1.y--; break;
+                    case sf::Keyboard::Right: if (!maze[player1Pos.y][player1Pos.x].walls[1]) newPos1.x++; break;
+                    case sf::Keyboard::Down:  if (!maze[player1Pos.y][player1Pos.x].walls[2]) newPos1.y++; break;
+                    case sf::Keyboard::Left:  if (!maze[player1Pos.y][player1Pos.x].walls[3]) newPos1.x--; break;
+                    }
+                    player1Pos = newPos1;
+
+                    // Player 2 (WASD)
+                    sf::Vector2i newPos2 = player2Pos;
+                    switch (event.key.code) {
+                    case sf::Keyboard::W: if (!maze2[player2Pos.y][player2Pos.x].walls[0]) newPos2.y--; break;
+                    case sf::Keyboard::D: if (!maze2[player2Pos.y][player2Pos.x].walls[1]) newPos2.x++; break;
+                    case sf::Keyboard::S: if (!maze2[player2Pos.y][player2Pos.x].walls[2]) newPos2.y++; break;
+                    case sf::Keyboard::A: if (!maze2[player2Pos.y][player2Pos.x].walls[3]) newPos2.x--; break;
+                    }
+                    player2Pos = newPos2;
+
+                    // Add winning condition here
+                    if (player1Pos.x == mazeSize - 1 && player1Pos.y == mazeSize - 1) {
+                        winningPlayer = 1;
+                        isGameWon = true;
+                    }
+                    else if (player2Pos.x == mazeSize - 1 && player2Pos.y == mazeSize - 1) {
+                        winningPlayer = 2;
+                        isGameWon = true;
+                    }
+                }
+            }
+            if (state == MULTIPLAYER_PLAYING && event.type == sf::Event::MouseButtonPressed) {
+                sf::Vector2i mousePos = sf::Mouse::getPosition(window);
+
+                // Player 1 hint button
+                if (hintButton1.contains(mousePos) && hintCount1 > 0) {
+                    showHint1 = true;
+                    hintTimer1.restart();
+                    hintPath1 = findPathForPlayer(maze, player1Pos); // Generate hint path for Player 1
+                    hintCount1--;
+                }
+
+                // Player 2 hint button
+                if (hintButton2.contains(mousePos) && hintCount2 > 0) {
+                    showHint2 = true;
+                    hintTimer2.restart();
+                    hintPath2 = findPathForPlayer(maze2, player2Pos); // Generate hint path for Player 2
+                    hintCount2--;
+                }
+            }
+
+            // Update hint timers to hide hints after a few seconds
+            if (showHint1 && hintTimer1.getElapsedTime().asSeconds() > 2.0f) {
+                showHint1 = false;
+                hintPath1.clear();
+            }
+
+            if (showHint2 && hintTimer2.getElapsedTime().asSeconds() > 2.0f) {
+                showHint2 = false;
+                hintPath2.clear();
+            }
+
 
             // Handle player movement
             if (state == PLAYING && event.type == sf::Event::KeyPressed) {
@@ -418,6 +673,8 @@ private:
                     if (isGameWon) {
                         // Handle Enter key to return to menu after winning
                         if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Enter) {
+                            int timeTaken = static_cast<int>(gameTimer.getElapsedTime().asSeconds());
+                            saveScoreToFile(mazeSize == EASY ? "Easy" : (mazeSize == MEDIUM ? "Medium" : "Hard"), timeTaken);
                             resetGame();
                             state = MENU;
                             isGameWon = false;
@@ -453,6 +710,18 @@ private:
             showHint = false;
             hintPath.clear();
         }
+        // Update hint timers to hide hints after 2 seconds
+        if (showHint1 && hintTimer1.getElapsedTime().asSeconds() > 2.0f) {
+            showHint1 = false;
+            hintPath1.clear(); // Clear Player 1's hint path
+        }
+
+        if (showHint2 && hintTimer2.getElapsedTime().asSeconds() > 2.0f) {
+            showHint2 = false;
+            hintPath2.clear(); // Clear Player 2's hint path
+        }
+
+
     }
 
     void draw() {
@@ -639,6 +908,138 @@ private:
                 }
             }
             break;
+        case SCORES: {
+            // Static variables for sorting and data loading
+            static bool isSorted = false;
+            static std::vector<std::vector<std::string>> rows;
+
+            // Only load data if not already loaded
+            static bool dataLoaded = false;
+            if (!dataLoaded) {
+                std::ifstream inFile("scores.csv");
+                rows.clear(); // Clear any previous data
+                if (!inFile.is_open()) {
+                    sf::Text errorText("Error: Unable to load scores.", font, 30);
+                    errorText.setPosition(300, 300);
+                    errorText.setFillColor(sf::Color::Red);
+                    window.draw(errorText);
+                    break;
+                }
+
+                std::string line;
+                std::getline(inFile, line); // Skip the header
+
+                // Read each row from the file
+                while (std::getline(inFile, line)) {
+                    std::istringstream ss(line);
+                    std::string difficulty, score, timeTaken, dateTime;
+
+                    std::getline(ss, difficulty, ',');
+                    std::getline(ss, score, ',');
+                    std::getline(ss, timeTaken, ',');
+                    std::getline(ss, dateTime, ',');
+
+                    rows.push_back({ difficulty, score, timeTaken, dateTime });
+                }
+                inFile.close();
+                dataLoaded = true; // Data is loaded
+            }
+
+            // Draw the title
+            sf::Text titleText("Scores", font, 40);
+            titleText.setPosition(400, 50);
+            titleText.setFillColor(sf::Color::Yellow);
+            window.draw(titleText);
+
+            // Draw the headings
+            sf::Text headings("Difficulty | Score | Time Taken | Date & Time", font, 20);
+            headings.setPosition(150, 100);
+            headings.setFillColor(sf::Color::White);
+            window.draw(headings);
+
+            // Add Sort button
+            Button sortButton("Sort", font, 600, 50);
+            sortButton.draw(window);
+
+            // Check for Sort button click
+            if (sf::Mouse::isButtonPressed(sf::Mouse::Left)) {
+                sf::Vector2i mousePos = sf::Mouse::getPosition(window);
+                if (sortButton.contains(mousePos)) {
+                    if (!isSorted) {
+                        // Perform insertion sort
+                        for (size_t i = 1; i < rows.size(); ++i) {
+                            auto key = rows[i];
+                            int j = i - 1;
+
+                            while (j >= 0 && std::stoi(rows[j][1]) < std::stoi(key[1])) {
+                                rows[j + 1] = rows[j];
+                                --j;
+                            }
+                            rows[j + 1] = key;
+                        }
+                        isSorted = true; // Mark as sorted
+                    }
+                }
+            }
+
+            // Display rows
+            int y_offset = 150;
+            for (const auto& row : rows) {
+                std::string rowText = row[0] + " | " + row[1] + " | " + row[2] + " | " + row[3];
+
+                sf::Text rowTextDisplay(rowText, font, 20);
+                rowTextDisplay.setPosition(150, y_offset);
+                rowTextDisplay.setFillColor(sf::Color::White);
+                window.draw(rowTextDisplay);
+
+                y_offset += 30;
+            }
+
+            // Instruction to return to menu
+            sf::Text returnText("Press ESC to return to menu.", font, 20);
+            returnText.setPosition(300, 700);
+            returnText.setFillColor(sf::Color::White);
+            window.draw(returnText);
+
+            // Reset state when ESC is pressed
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Escape)) {
+                dataLoaded = false; // Reset data loading flag
+                isSorted = false;   // Reset sorting flag
+                state = MENU;       // Return to menu
+            }
+            break;
+
+        }
+        case MULTIPLAYER_PLAYING: {
+            float maze1OffsetX = (window.getSize().x / 4) - (mazeSize * CELL_SIZE / 2);
+            float maze2OffsetX = (3 * window.getSize().x / 4) - (mazeSize * CELL_SIZE / 2);
+            float offsetY = (window.getSize().y - mazeSize * CELL_SIZE) / 2;
+
+            drawMultiplayerMaze(maze, maze1OffsetX, offsetY, sf::Color::Red, player1Pos);
+            drawMultiplayerMaze(maze2, maze2OffsetX, offsetY, sf::Color::Blue, player2Pos);
+            hintButton1.draw(window); // Player 1 hint button
+            hintButton2.draw(window);
+            // Display win message if a player wins
+            if (isGameWon) {
+                sf::Text winText("Player " + std::to_string(winningPlayer) + " Wins!", font, 40);
+                winText.setFillColor(sf::Color::Yellow);
+                winText.setPosition(window.getSize().x / 2 - winText.getLocalBounds().width / 2, window.getSize().y / 2);
+                window.draw(winText);
+
+                // Allow players to return to the menu
+                sf::Text returnText("Press Enter to return to the menu", font, 20);
+                returnText.setFillColor(sf::Color::White);
+                returnText.setPosition(window.getSize().x / 2 - returnText.getLocalBounds().width / 2, window.getSize().y / 2 + 50);
+                window.draw(returnText);
+
+                if (sf::Keyboard::isKeyPressed(sf::Keyboard::Enter)) {
+                    state = MENU;
+                }
+            }
+
+            break;
+        }
+
         }
 
         window.display();
